@@ -610,6 +610,7 @@ class BertPooler(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.prompt_pool = config.prompt_pool
+        self.mask_index = config.mask_index
         if not config.prompt_pool:
           self.dense = nn.Linear(config.hidden_size, config.hidden_size)
           self.activation = nn.Tanh()
@@ -618,7 +619,7 @@ class BertPooler(nn.Module):
         # We "pool" the model by simply taking the hidden state corresponding
         # to the first token.
         if self.prompt_pool:
-          return hidden_states[:,8]
+          return hidden_states[:,self.mask_index]
         else:
           first_token_tensor = hidden_states[:, 0]
           pooled_output = self.dense(first_token_tensor)
