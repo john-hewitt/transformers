@@ -22,6 +22,8 @@ import random
 import sys
 from dataclasses import dataclass, field
 from typing import Optional
+import collections
+import torch
 
 import numpy as np
 from datasets import load_dataset, load_metric
@@ -96,6 +98,12 @@ class DataTrainingArguments:
         default=None, metadata={"help": "A csv or a json file containing the validation data."}
     )
     test_file: Optional[str] = field(default=None, metadata={"help": "A csv or a json file containing the test data."})
+
+    smart_init: Optional[bool] = field(
+        default=False,
+        metadata={
+          'help': "whether to use proposed smart initialization"}
+        )
 
     def __post_init__(self):
         if self.task_name is not None:
@@ -284,6 +292,7 @@ def main():
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
     )
+    config.prompt_pool = data_args.smart_init
     model = AutoModelForSequenceClassification.from_pretrained(
         model_args.model_name_or_path,
         from_tf=bool(".ckpt" in model_args.model_name_or_path),
@@ -292,6 +301,18 @@ def main():
         revision=model_args.model_revision,
         use_auth_token=True if model_args.use_auth_token else None,
     )
+
+
+    # Load pretrained parameters for readout function
+    if data_args.smart_init:
+      state_dict = model.state_dict()
+      # Word 1487 is 'together' 
+      new_readout = torch.stack(
+           (-state_dict['bert.embeddings.word_embeddings.weight'][1487,:],
+          state_dict['bert.embeddings.word_embeddings.weight'][1487,:]))
+      state_dict['classifier.weight'] = new_readout
+      state_dict['classifier.bias'] = torch.zeros(2)
+      model.load_state_dict(state_dict)
 
     # Preprocessing the datasets
     if data_args.task_name is not None:
@@ -353,9 +374,16 @@ def main():
             result["label"] = [label_to_id[l] for l in examples["label"]]
         return result
 
+    def prompt_function(ex):
+      ex['sentence'] = ('The sentiment of the following sentence is [MASK]. '
+          +  ex['sentence'])
+      return ex
+
+    if data_args.smart_init:
+      datasets = datasets.map(prompt_function)
     datasets = datasets.map(preprocess_function, batched=True, load_from_cache_file=not data_args.overwrite_cache)
 
-    train_dataset = datasets["train"]
+    train_dataset = datasets["train"].filter(lambda x: x['idx'] < 200)
     eval_dataset = datasets["validation_matched" if data_args.task_name == "mnli" else "validation"]
     if data_args.task_name is not None or data_args.test_file is not None:
         test_dataset = datasets["test_matched" if data_args.task_name == "mnli" else "test"]
