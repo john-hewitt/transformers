@@ -622,7 +622,8 @@ class BertPooler(nn.Module):
           return hidden_states[:,self.mask_index]
         else:
           first_token_tensor = hidden_states[:, 0]
-          pooled_output = self.dense(first_token_tensor)
+          #pooled_output = self.dense(first_token_tensor)
+          pooled_output = first_token_tensor @ self.dense.weight + self.dense.bias
           pooled_output = self.activation(pooled_output)
         return pooled_output
 
